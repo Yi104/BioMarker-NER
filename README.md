@@ -2,15 +2,6 @@
 
 Fine-tune BioBERT for biomedical NER (JNLPBA/BC5CDR) to extract biomarker-relevant entities.
 
-## Quickstart
-```bash
-conda create -n biomarker-env python=3.10 -y
-conda activate biomarker-env
-pip install -r requirements.txt
-pip install --upgrade pip
-
-# python src/train.py
-```
 
 ### Environment Setup
 
