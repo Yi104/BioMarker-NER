@@ -40,8 +40,8 @@ class Config:
     save_strategy: str # epochs
     save_steps: int
     seed: int
-    hidden_droupout: float = 0.1
-    attention_droupout: float = 0.1
+    hidden_dropout: float = 0.1
+    attention_dropout: float = 0.1
     run_name: str = "default"
 
 
@@ -188,6 +188,7 @@ def main(config_path: str = "configs/base.json"):
     os.makedirs("outputs/reports", exist_ok=True)
     with open("outputs/reports/test_metrics.json", "w") as f:
         json.dump(metrics, f, indent=2)
+    wandb.log({"test_metrics": metrics}) # push result to W&B dashboard
 
     # log configs, metrics into local csv
     run_summary = {**cfg.__dict__, **metrics}
