@@ -17,7 +17,7 @@ parameters:
   attention_dropout:
     values: [0.1, 0.2, 0.3]
   weight_decay:
-    values: [0.0, 0.1, 0.01, 0.001, 0.0001],
+    values: [0.0, 0.1, 0.01, 0.001, 0.0001]
   warmup_ratio:
     values: [0.0, 0.1]
 
