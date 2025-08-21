@@ -10,6 +10,7 @@ This script include:
 import json, os
 import numpy as np
 from dataclasses import dataclass
+import pandas as pd
 
 # Huggingface
 from transformers import (AutoTokenizer, AutoModelForSequenceClassification, AutoModelForTokenClassification, Trainer, TrainingArguments, DataCollatorForTokenClassification,AutoConfig)
@@ -22,6 +23,7 @@ from seqeval.metrics import precision_score, recall_score, f1_score, classificat
 # helpers
 from src.data import load_ner_dataset, tokenize_and_align_labels
 from src.utils import set_seed
+
 
 @dataclass
 class Config:
@@ -131,7 +133,6 @@ def main(config_path: str = "configs/base.json"):
 
     model = AutoModelForTokenClassification.from_pretrained(
         cfg.model_name,
-        num_labels=len(label_list),
         config = model_config
     )
 
@@ -184,15 +185,23 @@ def main(config_path: str = "configs/base.json"):
 
 
     # 8. Final test evaluation
-    metrics = trainer.evaluate(tokenized["test"])
+    try:
+        metrics = trainer.evaluate(tokenized["test"])
+    except Exception as e:
+        print(f"[WARN] Test evaluation failed: {e}")
+        metrics = {"precision": 0.0, "recall": 0.0, "f1": 0.0}
+
+    # --- save JSON ---
     os.makedirs("outputs/reports", exist_ok=True)
-    with open("outputs/reports/test_metrics.json", "w") as f:
+    report_path = "outputs/reports/test_metrics.json"
+    with open(report_path, "w") as f:
         json.dump(metrics, f, indent=2)
-    wandb.log({"test_metrics": metrics}) # push result to W&B dashboard
+    print(f"[INFO] Test metrics saved to {report_path}")
+
+
 
     # log configs, metrics into local csv
     run_summary = {**cfg.__dict__, **metrics}
-    import pandas as pd
     csv_path = "outputs/reports/all_results.csv"
     if os.path.exists(csv_path):
         df = pd.read_csv(csv_path)
@@ -201,6 +210,9 @@ def main(config_path: str = "configs/base.json"):
         df = pd.DataFrame([run_summary])
     df.to_csv(csv_path, index=False)
     print(f"[INFO] Results saved to {csv_path}")
+
+    # --- log to W&B ---
+    wandb.log({"test_metrics": metrics})  # push result to W&B dashboard
 
 
     # close w&b run
