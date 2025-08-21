@@ -3,5 +3,5 @@
   <component name="Black">
     <option name="sdkName" value="Python 3.9 (biobert_biomarker_ner)" />
   </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="biobert_biomarker_ner" project-jdk-type="Python SDK" />
+  <component name="ProjectRootManager" version="2" project-jdk-name="biomarker-env" project-jdk-type="Python SDK" />
 </project>
