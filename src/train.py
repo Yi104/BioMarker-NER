@@ -189,6 +189,18 @@ def main(config_path: str = "configs/base.json"):
     with open("outputs/reports/test_metrics.json", "w") as f:
         json.dump(metrics, f, indent=2)
 
+    # log configs, metrics into local csv
+    run_summary = {**cfg.__dict__, **metrics}
+    import pandas as pd
+    csv_path = "outputs/reports/all_results.csv"
+    if os.path.exists(csv_path):
+        df = pd.read_csv(csv_path)
+        df = pd.concat([df, pd.DataFrame([run_summary])], ignore_index=True)
+    else:
+        df = pd.DataFrame([run_summary])
+    df.to_csv(csv_path, index=False)
+    print(f"[INFO] Results saved to {csv_path}")
+
 
     # close w&b run
     wandb.finish()
