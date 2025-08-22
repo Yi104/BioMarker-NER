@@ -19,7 +19,7 @@ parameters:
     values: [2e-5, 3e-5, 5e-5]
 
   weight_decay:
-    values: [0.1, 0.01, 0.001, 0.0001]
+    values: [0.0, 0.1, 0.01, 0.001, 0.0001]
 
   num_train_epochs:
     values: [3, 4, 5, 6, 8]
@@ -28,19 +28,20 @@ parameters:
     values: [8, 16, 32]
 
   per_device_eval_batch_size:
-    value: 16   # fixed, matches baseline config
+    value: 16
 
   warmup_ratio:
     values: [0.0, 0.1]
 
   logging_steps:
-    value: 50   # baseline default
+    value: 50
 
   eval_strategy:
     value: "epoch"
 
   eval_steps:
     value: 500
+
   save_strategy:
     value: "epoch"
 
@@ -58,4 +59,3 @@ parameters:
 
   run_name:
     value: "sweep"
-
