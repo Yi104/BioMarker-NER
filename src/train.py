@@ -12,9 +12,10 @@ import numpy as np
 from dataclasses import dataclass
 import pandas as pd
 import argparse
+from datetime import datetime
 
 # Huggingface
-from transformers import (AutoTokenizer, AutoModelForSequenceClassification, AutoModelForTokenClassification, Trainer, TrainingArguments, DataCollatorForTokenClassification,AutoConfig)
+from transformers import (AutoTokenizer, AutoModelForTokenClassification, Trainer, TrainingArguments, DataCollatorForTokenClassification,AutoConfig)
 # Weight & Bias
 import wandb
 
@@ -58,7 +59,10 @@ def compute_metrics(eval_pred, label_list):
     :param label_list: List[str], list of label strings, e.g ["O", "B-Chemical", "I-Chemical", "B-Disease" ...]
     :return: metrics  dict {precision, recall, f1_score}
     """
-    predictions, labels = eval_pred
+    # predictions, labels = eval_pred
+
+    predictions = getattr(eval_pred, "predictions", eval_pred[0])
+    labels = getattr(eval_pred, "label_ids", eval_pred[1])
 
     # shape: (batch_size, seq_len, num_labels)
     preds = np.argmax(predictions, axis=2)
@@ -141,7 +145,15 @@ def main(config_path: str = "configs/base.json"):
                 name=cfg.run_name,
                 config=cfg.__dict__
          )
+    run_id = run.id if run else datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    local_output_dir = f"outputs/run_{run_id}"
+    os.makedirs(local_output_dir, exist_ok=True)
+
     set_seed(cfg.seed)
+
+
+
 
 
     # 2. Load dataset
@@ -169,9 +181,12 @@ def main(config_path: str = "configs/base.json"):
     )
 
 
+    run = wandb.run  # after wandb.init(), this is always available
+
+
     # 5. Training arguments
-    args = TrainingArguments(
-        output_dir="outputs/checkpoints",
+    training_args = TrainingArguments(
+        output_dir=local_output_dir,
         run_name=cfg.run_name,
         learning_rate=cfg.learning_rate,
         weight_decay=cfg.weight_decay,
@@ -179,16 +194,16 @@ def main(config_path: str = "configs/base.json"):
         per_device_train_batch_size=cfg.per_device_train_batch_size,
         per_device_eval_batch_size=cfg.per_device_eval_batch_size,
         warmup_ratio=cfg.warmup_ratio,
-        evaluation_strategy=cfg.eval_strategy, # ? evaluation strategy?
+        evaluation_strategy=cfg.eval_strategy, # ? evaluation strategy/ eval strategy
         save_strategy=cfg.save_strategy,
         eval_steps=cfg.eval_steps,
         save_steps=cfg.save_steps,
         logging_steps=cfg.logging_steps,
         save_total_limit=2,            # keep last 2 checkpoints
         load_best_model_at_end=True,
-        metric_for_best_model="f1",    # choose F1 for best model
+        metric_for_best_model="eval_f1",    # this need to match the oconfig
         greater_is_better=True,
-        report_to = "wandb"
+        report_to = ["wandb"] # use a list
     )
 
 
@@ -200,7 +215,7 @@ def main(config_path: str = "configs/base.json"):
 
     trainer = Trainer(
         model=model,
-        args=args,
+        args=training_args,
         train_dataset=tokenized["train"],
         eval_dataset=tokenized["validation"],
         tokenizer=tokenizer,
@@ -212,47 +227,46 @@ def main(config_path: str = "configs/base.json"):
     trainer.train()
 
     # Save best model checkpoint
-    trainer.save_model("outputs/best_model")
-    tokenizer.save_pretrained("outputs/best_model")
+    best_dir = f"{local_output_dir}/best_model"
+    trainer.save_model(best_dir)
+    tokenizer.save_pretrained(best_dir)
 
 
     # 8. Final test evaluation and save results
     try:
-        metrics = trainer.evaluate(tokenized["test"])
+        test_metrics = trainer.evaluate(tokenized["test"], metric_key_prefix="test")
     except Exception as e:
         print(f"[WARN] Test evaluation failed: {e}")
-        metrics = {"precision": 0.0, "recall": 0.0, "f1": 0.0}
+        test_metrics = {"precision": 0.0, "recall": 0.0, "f1": 0.0}
 
     # --- Save test metrics to JSON ---
     os.makedirs("outputs/reports", exist_ok=True)
-    report_path = "outputs/reports/test_metrics.json"
-    with open(report_path, "w") as f:
-        json.dump(metrics, f, indent=2)
-    print(f"[INFO] Test metrics saved to {report_path}")
 
-    # --- Merge config + metrics ---
-    run_summary = {**cfg.__dict__, **metrics}
-
-    # --- Save per-run CSV (unique file, uses wandb run id) ---
-    run = wandb.run  # after wandb.init(), this is always available
-    per_run_csv = f"outputs/reports/run_{run.id}.csv"
-    pd.DataFrame([run_summary]).to_csv(per_run_csv, index=False)
+    # 9a) Per-run CSV (unique filename prevents clashes in sweeps)
+    per_run_csv = f"outputs/reports/run_{run_id}.csv"
+    row = {**cfg.__dict__, **test_metrics, "run_id": run_id}
+    pd.DataFrame([row]).to_csv(per_run_csv, index=False)
     print(f"[INFO] Per-run results saved to {per_run_csv}")
 
-    # --- Append to master CSV ---
-    master_csv = "outputs/reports/sall_results.csv"
-    if os.path.exists(master_csv):
-        df = pd.read_csv(master_csv)
-        df = pd.concat([df, pd.DataFrame([run_summary])], ignore_index=True)
-    else:
-        df = pd.DataFrame([run_summary])
-    df.to_csv(master_csv, index=False)
-    print(f"[INFO] Results appended to {master_csv}")
+    # 9b) Master CSV (LOCAL) – best effort append
+    master_csv = "outputs/reports/all_results.csv"
+    try:
+        if os.path.exists(master_csv):
+            df = pd.read_csv(master_csv)
+            df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+        else:
+            df = pd.DataFrame([row])
+        df.to_csv(master_csv, index=False)
+        print(f"[INFO] Results appended to {master_csv}")
+    except Exception as e:
+        # If multiple processes race, report warning
+        print(f"[WARN] Could not append to {master_csv}: {e}. Per-run CSV is still saved.")
 
 
-
-    # --- log to W&B ---
-    wandb.log({"test_metrics": metrics})  # push result to W&B dashboard
+    # # --- log to W&B ---
+    # val_metrics = trainer.evaluate(tokenized["validation"]) # force validation after eval
+    # wandb.log(val_metrics)
+    wandb.log(test_metrics)  # push result to W&B dashboard
     # close w&b run
     wandb.finish()
 
