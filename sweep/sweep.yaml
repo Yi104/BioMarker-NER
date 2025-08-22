@@ -26,7 +26,7 @@ command:
   - --run_name=${run_name}
 
 metric:
-  name: eval/f1
+  name: eval_f1
   goal: maximize
 
 parameters:
