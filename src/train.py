@@ -137,31 +137,11 @@ def main(config_path: str = "configs/base.json"):
               **{k:v for k, v in vars(args).items() if k != "config_path"}}
 
     cfg = Config(**merged)
-    wandb.init( project="biomarker-ner",
+    run = wandb.init( project="biomarker-ner",
                 name=cfg.run_name,
                 config=cfg.__dict__
          )
     set_seed(cfg.seed)
-    # if config_path is not None:
-    #     # Baseline run: load JSON config
-    #     cfg_dict = json.load(open(config_path))
-    #     cfg = Config(**cfg_dict)
-    #
-    #     # Start wandb for baseline logging
-    #     wandb.init(
-    #         project="biomarker-ner",
-    #         name=cfg.run_name if hasattr(cfg, "run_name") else "baseline",
-    #         config=cfg.__dict__
-    #     )
-    #
-    # else:
-    #     # Sweep run: wandb provides config
-    #     wandb.init(project="biomarker-ner")
-    #     cfg_dict = dict(wandb.config)
-    #     cfg = Config(**cfg_dict)
-    #
-
-
 
 
     # 2. Load dataset
@@ -199,7 +179,7 @@ def main(config_path: str = "configs/base.json"):
         per_device_train_batch_size=cfg.per_device_train_batch_size,
         per_device_eval_batch_size=cfg.per_device_eval_batch_size,
         warmup_ratio=cfg.warmup_ratio,
-        eval_strategy=cfg.eval_strategy, # ? evaluation strategy?
+        evaluation_strategy=cfg.eval_strategy, # ? evaluation strategy?
         save_strategy=cfg.save_strategy,
         eval_steps=cfg.eval_steps,
         save_steps=cfg.save_steps,
@@ -245,21 +225,18 @@ def main(config_path: str = "configs/base.json"):
 
     # --- save JSON ---
     os.makedirs("outputs/reports", exist_ok=True)
-    report_path = "outputs/reports/test_metrics.json"
-    with open(report_path, "w") as f:
-        json.dump(metrics, f, indent=2)
-    print(f"[INFO] Test metrics saved to {report_path}")
+    run_csv = f'outputs/reports/runs/run_{run.id}.csv'
+    pd.DataFrame([{**cfg.__dict__, **metrics}]).to_csv(run_csv, index=False)
 
-    # log configs, metrics into local csv
-    run_summary = {**cfg.__dict__, **metrics}
-    csv_path = "outputs/reports/all_results.csv"
-    if os.path.exists(csv_path):
-        df = pd.read_csv(csv_path)
-        df = pd.concat([df, pd.DataFrame([run_summary])], ignore_index=True)
+    # Append result to master csv
+    master_path = "outputs/reports/sweep_all_results.csv"
+    if os.path.exists(master_path):
+        df = pd.read_csv(master_path)
+        df = pd.concat([df, pd.DataFrame([{**cfg.__dict__, **metrics}])], ignore_index=True)
     else:
-        df = pd.DataFrame([run_summary])
-    df.to_csv(csv_path, index=False)
-    print(f"[INFO] Results saved to {csv_path}")
+        df = pd.DataFrame([{**cfg.__dict__, **metrics}])
+    df.to_csv(master_path, index=False)
+    print(f"[INFO] Results appended to {master_path}")
 
     # --- log to W&B ---
     wandb.log({"test_metrics": metrics})  # push result to W&B dashboard
