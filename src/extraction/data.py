@@ -46,15 +46,17 @@ LABEL_ALL_TOKENS = True
 
 # Available datasets
 NER_DATASETS = {
-    # "jnlpba": {
-    #     "path": "bigbio/jnlpba",
-    #     "name": "jnlpba_bigbio_kb",   # BigBio schema?? need to test separately.
-    #     "text_column": "tokens",      #
-    #     "label_column": "ner_tags",   #
-    # },
+    "jnlpba": {
+        "path": "bigbio/jnlpba",
+        "name": "jnlpba_bigbio_kb",
+        "schema": "kb_jnlpba",
+        "text_column": "tokens",
+        "label_column": "ner_tags",
+    },
     "bc5cdr": {
         "path": "bigbio/bc5cdr",
         "name": "bc5cdr_bigbio_kb",   # BigBio schema
+        "schema": "kb",
         "text_column": "tokens",      #
         "label_column": "ner_tags",   #
     },
@@ -82,47 +84,82 @@ def load_ner_dataset(name: str, tokenizer_name: str = None, cache_dir: str = Non
     spec = NER_DATASETS[name]
 
     # Load raw BigBio KB schema dataset
-    ds = load_dataset(spec["path"], name=spec["name"], cache_dir=cache_dir)
+    ds = load_dataset(
+        spec["path"],
+        name=spec["name"],
+        cache_dir=cache_dir,
+        trust_remote_code=True,
+    )
 
-    # Initialize tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name or "dmis-lab/biobert-base-cased-v1.1")
+    if spec["schema"] == "source":
+        # jnlpba_source already has token-level ner_tags.
+        feature = ds["train"].features[spec["label_column"]]
+        labels = None
+        if hasattr(feature, "feature") and hasattr(feature.feature, "names"):
+            labels = list(feature.feature.names)
+        if not labels:
+            seen = set()
+            for split in ds.keys():
+                for seq in ds[split][spec["label_column"]]:
+                    seen.update(seq)
+            labels = [str(i) for i in sorted(seen)]
+    else:
+        # Step 1: Convert KB-style entity annotations into BIO tags over whitespace tokens.
+        def kb_to_bio(example):
+            entities = example["entities"]
 
-    # Step 1: Convert KB-style entity annotations into BIO tags over whitespace tokens.
-    def kb_to_bio(example):
-        text = " ".join(p for passage in example["passages"] for p in passage["text"])
-        entities = example["entities"]
+            if spec["schema"] == "kb_jnlpba":
+                # JNLPBA BigBio KB often has empty passages; entities carry token stream.
+                tokens = [ent["text"][0] for ent in entities if ent.get("text")]
+                tags = []
+                for ent in entities:
+                    ent_type = str(ent.get("type", "0"))
+                    if ent_type == "0":
+                        tags.append("O")
+                    else:
+                        tags.append(f"B-{ent_type}")
+                return {"tokens": tokens, "ner_tags_str": tags}
 
-        # Tokenize by whitespace (before aligning to HF tokenizer)
-        tokens = text.split()
-        tags = ["O"] * len(tokens)
+            text = " ".join(p for passage in example["passages"] for p in passage["text"])
+            tokens = text.split()
+            tags = ["O"] * len(tokens)
+            for ent in entities:
+                ent_type = ent["type"]
+                for i, tok in enumerate(tokens):
+                    if tok == ent["text"][0]:
+                        tags[i] = f"B-{ent_type}"
+                        for j in range(1, len(ent["text"])):
+                            if i + j < len(tokens):
+                                tags[i + j] = f"I-{ent_type}"
 
-        for ent in entities:
-            ent_text = " ".join(ent["text"])
-            ent_type = ent["type"]
+            return {"tokens": tokens, "ner_tags_str": tags}
 
-            # find entity in token list
-            for i, tok in enumerate(tokens):
-                if tok == ent["text"][0]:
-                    tags[i] = f"B-{ent_type}"
-                    for j in range(1, len(ent["text"])):
-                        if i + j < len(tokens):
-                            tags[i + j] = f"I-{ent_type}"
+        ds = ds.map(kb_to_bio)
 
-        return {"tokens": tokens, "ner_tags_str": tags}
+        # Step 2: Build deterministic label vocabulary for model config.
+        unique_tags = {"O"}
+        for split in ds.keys():
+            for ex in ds[split]["ner_tags_str"]:
+                unique_tags.update(ex)
+        labels = sorted(unique_tags)
+        label2id = {l: i for i, l in enumerate(labels)}
 
-    ds = ds.map(kb_to_bio)
+        # Step 3: Convert string tags into integer IDs expected by Trainer.
+        def encode_tags(example):
+            return {"ner_tags": [label2id[tag] for tag in example["ner_tags_str"]]}
 
-    # Step 2: Build deterministic label vocabulary for model config.
-    unique_tags = set(tag for ex in ds["train"]["ner_tags_str"] for tag in ex)
-    labels = sorted(unique_tags)
-    label2id = {l: i for i, l in enumerate(labels)}
-    id2label = {i: l for l, i in label2id.items()}
+        ds = ds.map(encode_tags)
 
-    # Step 3: Convert string tags into integer IDs expected by Trainer.
-    def encode_tags(example):
-        return {"ner_tags": [label2id[tag] for tag in example["ner_tags_str"]]}
-
-    ds = ds.map(encode_tags)
+    # Keep training code stable: always provide a validation split.
+    if "validation" not in ds and "train" in ds:
+        split = ds["train"].train_test_split(test_size=0.1, seed=42)
+        ds = DatasetDict(
+            {
+                "train": split["train"],
+                "validation": split["test"],
+                **({"test": ds["test"]} if "test" in ds else {}),
+            }
+        )
 
     return ds, spec["text_column"], spec["label_column"], labels
 
@@ -178,6 +215,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     ds, text_col, label_col, labels = load_ner_dataset(args.dataset, tokenizer_name=args.model_name)
+    from transformers import AutoTokenizer
+
     tok = AutoTokenizer.from_pretrained(args.model_name)
     tokenized = tokenize_and_align_labels(ds, tok, text_col, label_col, args.max_length)
     print(f"OK: extraction.data labels={len(labels)} train_rows={len(ds['train'])}")

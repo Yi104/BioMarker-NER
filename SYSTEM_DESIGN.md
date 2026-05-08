@@ -119,3 +119,27 @@ You can understand this project as four layers:
 - Demo and analysis: `demo/app.py` + `src/eval.py`
 
 The core training pipeline is already working. The next engineering focus is to harden inference outputs and the demo/evaluation experience.
+
+## 9. Normalization Mapping Plan
+
+To keep normalization reproducible and auditable, mapping data should live in versioned CSV files:
+
+- `data/normalization/gene_aliases.csv`
+- `data/normalization/disease_aliases.csv`
+- `data/normalization/chemical_aliases.csv`
+
+Shared CSV columns:
+
+- `entity_type, alias, normalized_id, preferred_label`
+
+Column intent:
+
+- `alias`: synonym/surface form from NER output
+- `normalized_id`: stable vocabulary ID (for example HGNC/MeSH/ChEBI IDs)
+- `preferred_label`: canonical label used for display and downstream joins
+
+Recommended data sources:
+
+- Genes: HGNC complete set (symbol + alias fields)
+- Diseases: MeSH descriptor/entry terms (MONDO optional as a secondary source)
+- Chemicals: ChEBI names + synonyms (MeSH supplementary concepts optional)

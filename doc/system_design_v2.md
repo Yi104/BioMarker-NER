@@ -88,6 +88,55 @@ Task-specific normalization:
 - For `BC5CDR`, normalize gene and disease mentions for evidence tuples
 - For `JNLPBA`, normalize broader bio-entity mentions for KB expansion
 
+Normalization mapping files (local contracts):
+
+- `data/processed/normalization/gene_aliases.csv`
+- `data/processed/normalization/disease_aliases.csv`
+- `data/processed/normalization/chemical_aliases.csv`
+
+CSV schema (all three files):
+
+- `entity_type, alias, normalized_id, preferred_label`
+- `entity_type`: expected values such as `gene`, `disease`, `chemical`
+- `alias`: raw/synonym mention form used for lookup
+- `normalized_id`: stable external ID (for example `HGNC:1100`, `MESH:D001943`)
+- `preferred_label`: canonical display label used in normalized output
+
+Authoritative upstream sources:
+
+Gene mappings (HGNC complete set):
+
+| column | example_value |
+|---|---|
+| `entity_type` | `gene` |
+| `alias` | `(p)rr` |
+| `normalized_id` | `HGNC:18305` |
+| `preferred_label` | `ATP6AP2` |
+
+Disease mappings (MeSH descriptors/entry terms):
+
+| column | example_value |
+|---|---|
+| `entity_type` | `disease` |
+| `alias` | `(ppnet) peripheral primitive neuroectodermal tumors` |
+| `normalized_id` | `MESH:D018241` |
+| `preferred_label` | `Neuroectodermal Tumors, Primitive, Peripheral` |
+
+Chemical mappings (ChEBI names/synonyms):
+
+| column | example_value |
+|---|---|
+| `entity_type` | `chemical` |
+| `alias` | `#as(o)` |
+| `normalized_id` | `CHEBI:30276` |
+| `preferred_label` | `arsorylidyne group` |
+
+
+Maintenance policy:
+
+- Keep repository CSV files as curated snapshots derived from upstream releases.
+- Record upstream release date/version in commit message when refreshing mappings.
+
 ### L3. Knowledge Base Layer (SQLite-first)
 
 Responsibilities:
@@ -152,6 +201,18 @@ Responsibilities:
 Constraint:
 
 - No unsupported claims allowed
+
+Provider strategy (cost-aware and user-flexible):
+
+- `none` (default): no model call, return structured evidence bundle only
+- `ollama`: local model via `http://localhost:11434` if user has Ollama
+- `openai` / `anthropic` / `gemini`: BYO-key mode (user-provided API key; no platform-hosted model requirement)
+
+Integration contract:
+
+- Input: `question` + evidence bundle from L4/L5
+- Output: `{provider, model(optional), summary, citations/evidence}`
+- Fallback: if provider unavailable, return evidence-only mode
 
 ### L7. Output Layer
 
@@ -522,7 +583,7 @@ Status legend:
 | L3 Knowledge Base (SQLite) | `NOT STARTED` | None (`db/` folder absent) | Need schema + migration + upsert layer |
 | L4 Retrieval | `PARTIAL` | `src/retrieval/structured_query.py` returns DataFrame summaries from runtime pipeline | No SQL structured retrieval, no semantic reranking index |
 | L5 Agent | `NOT STARTED` | None | Need planner/controller + tool-calling policy |
-| L6 LLM constrained summarization | `NOT STARTED` | None | Need prompt policy + citation-bound output contract |
+| L6 LLM constrained summarization | `PARTIAL` | `src/llm/router.py` provides provider routing (`none/ollama/openai/anthropic/gemini`) with evidence-only fallback | Need full BYO provider clients, citation-level post-validation, and prompt/version governance |
 | L7 Output layer | `PARTIAL` | `demo/app.py` table display + CSV export | No API JSON contract, no claim-level citation object |
 
 ### 11.2 Tool API Status

@@ -105,7 +105,7 @@ Open:
 - `demo/app.py`: Streamlit user interface
 - `src/ingestion/pubmed_client.py`: PubMed search + fetch
 - `src/extraction/bc5cdr_pipeline.py`: Task A wrapper for gene-disease evidence
-- `src/extraction/jnlpba_pipeline.py`: Task B scaffold for biomedical entity discovery
+- `src/extraction/jnlpba_pipeline.py`: Task B wrapper for biomedical entity discovery
 - `src/retrieval/structured_query.py`: shared query-time pipeline (`query -> papers -> ner -> tables`)
 - `src/extraction/ner_infer.py`: model inference and entity aggregation
 - `src/extraction/train_ner.py`: NER training pipeline
@@ -145,8 +145,14 @@ python -m pipelines.run_train
 ```
 
 Artifacts:
-- Best model: `outputs/best_model/`
-- Metrics: `outputs/reports/test_metrics.json`
+- BC5CDR best model: `outputs/best_model/`
+- JNLPBA best model: `outputs/best_model_jnlpba/`
+- BC5CDR reports: `outputs/reports/bc5cdr/`
+- JNLPBA reports: `outputs/reports/jnlpba/`
+
+Config files:
+- `configs/bc5cdr.json`
+- `configs/jnlpba.json`
 
 ## Task Entrypoints
 
@@ -162,10 +168,91 @@ Local smoke check for Task A:
 python -m pipelines.run_extract_bc5cdr --smoke
 ```
 
-Task B, biomedical entity discovery scaffold:
+Task B, biomedical entity discovery workflow:
 
 ```bash
 python -m pipelines.run_extract_jnlpba --query "IL-2 gene expression"
+```
+
+Local smoke check for Task B:
+
+```bash
+python -m pipelines.run_extract_jnlpba --smoke
+```
+
+## Baseline Export (Task A)
+
+Export a fixed BC5CDR baseline snapshot for regression checks:
+
+```bash
+python -m pipelines.run_export_bc5cdr_baseline
+```
+
+Generated files:
+- `outputs/reports/baseline_bc5cdr_papers.csv`
+- `outputs/reports/baseline_bc5cdr_entities.csv`
+
+## Baseline Export (Task B)
+
+Export a fixed JNLPBA baseline snapshot for regression checks:
+
+```bash
+python -m pipelines.run_export_jnlpba_baseline --smoke
+```
+
+Generated files:
+- `outputs/reports/baseline_jnlpba_papers.csv`
+- `outputs/reports/baseline_jnlpba_entities.csv`
+
+## Normalization Mappings
+
+Build normalization mapping CSVs from downloaded raw sources (`HGNC`, `MeSH`, `ChEBI`):
+
+```bash
+python -m pipelines.build_normalization_mappings
+```
+
+Default outputs:
+- `data/processed/normalization/gene_aliases.csv`
+- `data/processed/normalization/disease_aliases.csv`
+- `data/processed/normalization/chemical_aliases.csv`
+
+Disease filtering (default is already enabled):
+- Keeps only MeSH descriptor tree prefixes `C` and `F03` for disease aliases.
+
+Override disease tree prefixes:
+
+```bash
+python -m pipelines.build_normalization_mappings --disease_tree_prefixes C
+```
+
+Override output directory:
+
+```bash
+python -m pipelines.build_normalization_mappings --outdir data/processed/normalization
+```
+
+## SQLite KB
+
+Initialize SQLite schema:
+
+```bash
+python -m pipelines.run_init_sqlite
+```
+
+Ingest Task pipeline outputs into SQLite:
+
+```bash
+python -m pipelines.run_ingest_to_sqlite --task bc5cdr --smoke
+python -m pipelines.run_ingest_to_sqlite --task jnlpba --smoke
+```
+
+Query SQLite KB:
+
+```bash
+python -m pipelines.run_query_sqlite --mode pmid --pmid SMOKE001
+python -m pipelines.run_query_sqlite --mode normalized_id --normalized_id HGNC:1100
+python -m pipelines.run_query_sqlite --mode type_keyword --entity_type Gene --keyword brca
 ```
 
 ## Module Smoke Checks (Old-school)
@@ -194,3 +281,8 @@ Current unit tests focus on:
 - PubMed XML parsing (mocked)
 - Retrieval pipeline assembly (mocked)
 - BIO span-to-entity merge behavior
+- Unified task output schema regression (BC5CDR + JNLPBA column contract checks)
+
+Schema contract source:
+- `src/contracts/task_output_schemas.py` (shared definitions)
+- `src/contracts/registry.py` (versioned registry, e.g. `bc5cdr:v1`, `jnlpba:v1`)

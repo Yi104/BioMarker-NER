@@ -1,0 +1,22 @@
+{
+  "model_name": "dmis-lab/biobert-base-cased-v1.1",
+  "dataset": "jnlpba",
+  "max_length": 128,
+  "learning_rate": 3e-5,
+  "weight_decay": 0.01,
+  "num_train_epochs": 4,
+  "per_device_train_batch_size": 4,
+  "per_device_eval_batch_size": 8,
+  "warmup_ratio": 0.1,
+  "logging_steps": 50,
+  "eval_strategy": "epoch",
+  "eval_steps": 200,
+  "save_strategy": "epoch",
+  "save_steps": 200,
+  "seed": 42,
+  "hidden_dropout": 0.1,
+  "attention_dropout": 0.1,
+  "checkpoints_dir": "outputs/checkpoints/jnlpba",
+  "best_model_dir": "outputs/best_model_jnlpba",
+  "report_path": "outputs/reports/jnlpba/test_metrics.json"
+}

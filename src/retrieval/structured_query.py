@@ -8,6 +8,7 @@ import pandas as pd
 
 from src.extraction.ner_infer import ner
 from src.ingestion.pubmed_client import fetch_pubmed_details, search_pubmed
+from src.normalization.rule_based import normalize_entities_df
 
 # Layer: retrieval
 # Role: end-to-end query-time path (search -> extract -> tabular outputs).
@@ -76,6 +77,8 @@ def run_search_ner_pipeline(
 
     papers_df = pd.DataFrame(rows)
     entities_df = pd.DataFrame(entity_rows)
+    # Step 3: apply deterministic normalization layer (v1 rules).
+    entities_df = normalize_entities_df(entities_df)
     return papers_df, entities_df
 
 
